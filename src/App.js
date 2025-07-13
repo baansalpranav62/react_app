@@ -37,7 +37,7 @@ function App() {
         
         <div className="container">
           <div className="header">
-            <h1>Hotel Registration System</h1>
+            <h1>Welcome to Haven</h1>
             <p>Secure and easy guest registration process</p>
           </div>
           

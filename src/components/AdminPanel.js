@@ -4,7 +4,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import toast from 'react-hot-toast';
 import { Users, Eye, Trash2, Download, Search, ExternalLink } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 import Login from './Login';
 
@@ -147,20 +147,24 @@ function AdminPanel() {
     }
   };
 
-  const downloadAndProcessImage = async (url) => {
+  const downloadImage = async (url) => {
     try {
       const response = await fetch(url);
       const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      return blob;
     } catch (error) {
       console.error('Error downloading image:', error);
       return null;
     }
+  };
+
+  const blobToBase64 = (blob) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   };
 
   const exportToExcel = async () => {
@@ -168,51 +172,27 @@ function AdminPanel() {
       setIsLoading(true);
       toast.loading('Preparing export with images...');
 
-      // Prepare the data
-      const excelData = await Promise.all(filteredGuests.map(async (guest) => {
-        // Get document URLs (handle both array and single string)
-        const documentUrls = Array.isArray(guest.identityDocumentUrl) 
-          ? guest.identityDocumentUrl 
-          : guest.identityDocumentUrl ? [guest.identityDocumentUrl] : [];
-
-        // Download and convert images to base64
-        const imagePromises = documentUrls.map(url => downloadAndProcessImage(url));
-        const images = await Promise.all(imagePromises);
-
-        return {
-          'Name': guest.name || '',
-          'No. of Guests': guest.numberOfGuests || '',
-          'Contact Number': guest.contactNumber || '',
-          'Nationality': guest.nationality || '',
-          'ID Type': getIdTypeLabel(guest.idType) || '',
-          'ID Number': guest.idNumber || '',
-          'Check-in Date': guest.checkinDate || '',
-          'Status': guest.status || '',
-          'Registration Date': formatDate(guest.registrationDate),
-          'Documents': images.filter(img => img !== null) // Remove any failed downloads
-        };
-      }));
-
       // Create workbook and worksheet
       const wb = XLSX.utils.book_new();
       
-      // Convert data to worksheet (excluding images first)
-      const wsData = excelData.map(row => ({
-        'Name': row['Name'],
-        'No. of Guests': row['No. of Guests'],
-        'Contact Number': row['Contact Number'],
-        'Nationality': row['Nationality'],
-        'ID Type': row['ID Type'],
-        'ID Number': row['ID Number'],
-        'Check-in Date': row['Check-in Date'],
-        'Status': row['Status'],
-        'Registration Date': row['Registration Date']
+      // Prepare the data rows first (without images)
+      const wsData = filteredGuests.map(guest => ({
+        'Name': guest.name || '',
+        'No. of Guests': guest.numberOfGuests || '',
+        'Contact Number': guest.contactNumber || '',
+        'Nationality': guest.nationality || '',
+        'ID Type': getIdTypeLabel(guest.idType) || '',
+        'ID Number': guest.idNumber || '',
+        'Check-in Date': guest.checkinDate || '',
+        'Status': guest.status || '',
+        'Registration Date': formatDate(guest.registrationDate)
       }));
-      
+
+      // Create worksheet
       const ws = XLSX.utils.json_to_sheet(wsData);
 
       // Set column widths
-      const colWidths = [
+      ws['!cols'] = [
         { wch: 20 }, // Name
         { wch: 15 }, // No. of Guests
         { wch: 15 }, // Contact Number
@@ -222,42 +202,94 @@ function AdminPanel() {
         { wch: 15 }, // Check-in Date
         { wch: 15 }, // Status
         { wch: 20 }, // Registration Date
+        { wch: 30 }, // Image column
       ];
-      ws['!cols'] = colWidths;
 
-      // Add images in new columns
-      excelData.forEach((row, rowIndex) => {
-        const images = row.Documents;
-        images.forEach((img, imgIndex) => {
-          if (img) {
-            // Calculate cell reference for image
-            const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: 9 + imgIndex });
-            
-            // Add image data to cell
+      // Set row heights
+      ws['!rows'] = wsData.map(() => ({ hpt: 150 })); // Set height for all rows
+
+      // Process images for each guest
+      for (let i = 0; i < filteredGuests.length; i++) {
+        const guest = filteredGuests[i];
+        const urls = Array.isArray(guest.identityDocumentUrl) 
+          ? guest.identityDocumentUrl 
+          : guest.identityDocumentUrl ? [guest.identityDocumentUrl] : [];
+
+        // Process each image for the current guest
+        for (let j = 0; j < urls.length; j++) {
+          const url = urls[j];
+          try {
+            // Download image
+            const imageBlob = await downloadImage(url);
+            if (!imageBlob) continue;
+
+            // Convert to base64
+            const base64 = await blobToBase64(imageBlob);
+            if (!base64) continue;
+
+            // Calculate cell position (9 + j is the column index after the regular data)
+            const cellRef = XLSX.utils.encode_cell({ r: i + 1, c: 9 + j });
+
+            // Add image to cell
             ws[cellRef] = {
-              t: 's', // text type
-              v: `[Document ${imgIndex + 1}]`,
-              l: {
-                Target: img,
-                Tooltip: `Document ${imgIndex + 1}`
+              t: 's',
+              v: 'ID Document ' + (j + 1),
+              s: {
+                alignment: {
+                  vertical: 'center',
+                  horizontal: 'center'
+                }
               }
             };
+
+            // Add image to worksheet
+            if (!ws['!images']) ws['!images'] = [];
+            ws['!images'].push({
+              name: 'image' + i + '_' + j,
+              data: base64,
+              position: {
+                type: 'twoCellAnchor',
+                from: {
+                  col: 9 + j,
+                  row: i + 1,
+                  colOff: 0,
+                  rowOff: 0
+                },
+                to: {
+                  col: 10 + j,
+                  row: i + 2,
+                  colOff: 0,
+                  rowOff: 0
+                }
+              }
+            });
+          } catch (error) {
+            console.error('Error processing image:', error);
+            continue;
           }
-        });
-      });
+        }
+      }
 
       // Add the worksheet to workbook
       XLSX.utils.book_append_sheet(wb, ws, 'Guest Registrations');
 
       // Generate Excel file
-      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const excelBuffer = XLSX.write(wb, { 
+        bookType: 'xlsx', 
+        type: 'array',
+        cellStyles: true,
+        compression: true
+      });
       
-      // Save file
+      // Create and save file
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
       saveAs(blob, `guest_registrations_${new Date().toISOString().split('T')[0]}.xlsx`);
 
       toast.dismiss();
-      toast.success('Export completed successfully!');
+      toast.success('Export completed with images!');
     } catch (error) {
       console.error('Export error:', error);
       toast.dismiss();

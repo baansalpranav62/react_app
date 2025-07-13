@@ -82,17 +82,6 @@ function Login() {
           )}
         </button>
       </form>
-
-      <div style={{ marginTop: '20px', padding: '16px', background: '#f3f4f6', borderRadius: '8px' }}>
-        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-          <strong>Default Admin Credentials:</strong><br />
-          Email: admin@hotel.com<br />
-          Password: admin123
-        </p>
-        <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#9ca3af' }}>
-          Note: Change these credentials in your Firebase Authentication settings
-        </p>
-      </div>
     </div>
   );
 }
