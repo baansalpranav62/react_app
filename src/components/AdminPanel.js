@@ -4,6 +4,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import toast from 'react-hot-toast';
 import { Users, Eye, Trash2, Download, Search, ExternalLink } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 import Login from './Login';
 
 function AdminPanel() {
@@ -132,39 +134,137 @@ function AdminPanel() {
 
   const viewDocument = (guest) => {
     if (guest.identityDocumentUrl) {
+      // Support both array and string for backward compatibility
+      const urls = Array.isArray(guest.identityDocumentUrl) ? guest.identityDocumentUrl : [guest.identityDocumentUrl];
+      const names = Array.isArray(guest.identityDocumentName) ? guest.identityDocumentName : [guest.identityDocumentName || `${guest.name}_ID_Document`];
+      
       setDocumentViewer({
-        url: guest.identityDocumentUrl,
-        name: guest.identityDocumentName || `${guest.name}_ID_Document`,
-        type: guest.identityDocumentUrl.includes('.pdf') ? 'pdf' : 'image'
+        urls,
+        names,
+        currentIndex: 0,
+        type: urls[0]?.includes('.pdf') ? 'pdf' : 'image'
       });
     }
   };
 
-  const exportToCSV = () => {
-    const csvData = filteredGuests.map(guest => ({
-      'Name': guest.name || '',
-      'No. of Guests': guest.numberOfGuests || '',
-      'Contact Number': guest.contactNumber || '',
-      'Nationality': guest.nationality || '',
-      'ID Type': getIdTypeLabel(guest.idType) || '',
-      'ID Number': guest.idNumber || '',
-      'Check-in Date': guest.checkinDate || '',
-      'Status': guest.status || '',
-      'Registration Date': formatDate(guest.registrationDate)
-    }));
+  const downloadAndProcessImage = async (url) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      return null;
+    }
+  };
 
-    const csvContent = [
-      Object.keys(csvData[0]).join(','),
-      ...csvData.map(row => Object.values(row).join(','))
-    ].join('\n');
+  const exportToExcel = async () => {
+    try {
+      setIsLoading(true);
+      toast.loading('Preparing export with images...');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'guest_registrations.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
+      // Prepare the data
+      const excelData = await Promise.all(filteredGuests.map(async (guest) => {
+        // Get document URLs (handle both array and single string)
+        const documentUrls = Array.isArray(guest.identityDocumentUrl) 
+          ? guest.identityDocumentUrl 
+          : guest.identityDocumentUrl ? [guest.identityDocumentUrl] : [];
+
+        // Download and convert images to base64
+        const imagePromises = documentUrls.map(url => downloadAndProcessImage(url));
+        const images = await Promise.all(imagePromises);
+
+        return {
+          'Name': guest.name || '',
+          'No. of Guests': guest.numberOfGuests || '',
+          'Contact Number': guest.contactNumber || '',
+          'Nationality': guest.nationality || '',
+          'ID Type': getIdTypeLabel(guest.idType) || '',
+          'ID Number': guest.idNumber || '',
+          'Check-in Date': guest.checkinDate || '',
+          'Status': guest.status || '',
+          'Registration Date': formatDate(guest.registrationDate),
+          'Documents': images.filter(img => img !== null) // Remove any failed downloads
+        };
+      }));
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      
+      // Convert data to worksheet (excluding images first)
+      const wsData = excelData.map(row => ({
+        'Name': row['Name'],
+        'No. of Guests': row['No. of Guests'],
+        'Contact Number': row['Contact Number'],
+        'Nationality': row['Nationality'],
+        'ID Type': row['ID Type'],
+        'ID Number': row['ID Number'],
+        'Check-in Date': row['Check-in Date'],
+        'Status': row['Status'],
+        'Registration Date': row['Registration Date']
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(wsData);
+
+      // Set column widths
+      const colWidths = [
+        { wch: 20 }, // Name
+        { wch: 15 }, // No. of Guests
+        { wch: 15 }, // Contact Number
+        { wch: 15 }, // Nationality
+        { wch: 15 }, // ID Type
+        { wch: 15 }, // ID Number
+        { wch: 15 }, // Check-in Date
+        { wch: 15 }, // Status
+        { wch: 20 }, // Registration Date
+      ];
+      ws['!cols'] = colWidths;
+
+      // Add images in new columns
+      excelData.forEach((row, rowIndex) => {
+        const images = row.Documents;
+        images.forEach((img, imgIndex) => {
+          if (img) {
+            // Calculate cell reference for image
+            const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: 9 + imgIndex });
+            
+            // Add image data to cell
+            ws[cellRef] = {
+              t: 's', // text type
+              v: `[Document ${imgIndex + 1}]`,
+              l: {
+                Target: img,
+                Tooltip: `Document ${imgIndex + 1}`
+              }
+            };
+          }
+        });
+      });
+
+      // Add the worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Guest Registrations');
+
+      // Generate Excel file
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      
+      // Save file
+      saveAs(blob, `guest_registrations_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+      toast.dismiss();
+      toast.success('Export completed successfully!');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.dismiss();
+      toast.error('Failed to export data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (loading) {
@@ -218,9 +318,14 @@ function AdminPanel() {
               <option value="rejected">Rejected</option>
             </select>
             
-            <button onClick={exportToCSV} className="btn btn-secondary">
-              <Download size={20} />
-              Export CSV
+            <button
+              onClick={exportToExcel}
+              className="btn btn-secondary"
+              disabled={isLoading}
+              style={{ marginLeft: '10px' }}
+            >
+              <Download size={16} />
+              {isLoading ? 'Preparing Export...' : 'Export Excel'}
             </button>
           </div>
         </div>
@@ -478,7 +583,12 @@ function AdminPanel() {
             
             <div style={{ textAlign: 'center' }}>
               <p style={{ marginBottom: '15px', color: '#6b7280' }}>
-                <strong>File:</strong> {documentViewer.name}
+                <strong>File:</strong> {documentViewer.names[documentViewer.currentIndex]}
+                {documentViewer.urls.length > 1 && (
+                  <span style={{ marginLeft: '10px', color: '#6b7280' }}>
+                    ({documentViewer.currentIndex + 1} of {documentViewer.urls.length})
+                  </span>
+                )}
               </p>
               
               {documentViewer.type === 'pdf' ? (
@@ -487,8 +597,8 @@ function AdminPanel() {
                     PDF Preview not available in demo mode
                   </p>
                   <a
-                    href={documentViewer.url}
-                    download={documentViewer.name}
+                    href={documentViewer.urls[documentViewer.currentIndex]}
+                    download={documentViewer.names[documentViewer.currentIndex]}
                     className="btn btn-primary"
                     style={{ textDecoration: 'none' }}
                   >
@@ -499,7 +609,7 @@ function AdminPanel() {
               ) : (
                 <div>
                   <img
-                    src={documentViewer.url}
+                    src={documentViewer.urls[documentViewer.currentIndex]}
                     alt="ID Document"
                     style={{
                       maxWidth: '100%',
@@ -511,8 +621,8 @@ function AdminPanel() {
                   />
                   <div style={{ marginTop: '15px' }}>
                     <a
-                      href={documentViewer.url}
-                      download={documentViewer.name}
+                      href={documentViewer.urls[documentViewer.currentIndex]}
+                      download={documentViewer.names[documentViewer.currentIndex]}
                       className="btn btn-secondary"
                       style={{ textDecoration: 'none' }}
                     >
@@ -520,6 +630,33 @@ function AdminPanel() {
                       Download Image
                     </a>
                   </div>
+                </div>
+              )}
+              
+              {documentViewer.urls.length > 1 && (
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setDocumentViewer(v => ({
+                      ...v,
+                      currentIndex: (v.currentIndex - 1 + v.urls.length) % v.urls.length,
+                      type: v.urls[(v.currentIndex - 1 + v.urls.length) % v.urls.length].includes('.pdf') ? 'pdf' : 'image'
+                    }))}
+                    disabled={documentViewer.currentIndex === 0}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setDocumentViewer(v => ({
+                      ...v,
+                      currentIndex: (v.currentIndex + 1) % v.urls.length,
+                      type: v.urls[(v.currentIndex + 1) % v.urls.length].includes('.pdf') ? 'pdf' : 'image'
+                    }))}
+                    disabled={documentViewer.currentIndex === documentViewer.urls.length - 1}
+                  >
+                    Next
+                  </button>
                 </div>
               )}
             </div>

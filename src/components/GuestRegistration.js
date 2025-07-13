@@ -8,7 +8,7 @@ import { User, Phone, Upload, CheckCircle, Users, Calendar, CreditCard, Globe } 
 
 function GuestRegistration() {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState(null);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   
   const {
@@ -21,11 +21,13 @@ function GuestRegistration() {
   // Cleanup blob URLs on component unmount (only for non-Cloudinary files)
   useEffect(() => {
     return () => {
-      if (uploadedFile?.url && uploadedFile.url.startsWith('blob:') && !uploadedFile.isCloudinary) {
-        URL.revokeObjectURL(uploadedFile.url);
-      }
+      uploadedFiles.forEach(file => {
+        if (file?.url && file.url.startsWith('blob:') && !file.isCloudinary) {
+          URL.revokeObjectURL(file.url);
+        }
+      });
     };
-  }, [uploadedFile]);
+  }, [uploadedFiles]);
 
   const handleFileUpload = async (file) => {
     if (!file) return null;
@@ -46,8 +48,8 @@ function GuestRegistration() {
           isCloudinary: true
         };
         
-        setUploadedFile(fileInfo);
-        toast.success('Document uploaded successfully to Cloudinary!');
+        setUploadedFiles(prev => [...prev, fileInfo]);
+        toast.success(`${file.name} uploaded successfully to Cloudinary!`);
         return cloudinaryResult.url;
       } catch (cloudinaryError) {
         console.warn('Cloudinary upload failed, falling back to local storage:', cloudinaryError);
@@ -65,8 +67,8 @@ function GuestRegistration() {
           isCloudinary: false
         };
         
-        setUploadedFile(fileInfo);
-        toast.success('Document uploaded successfully! (Demo mode - Configure Cloudinary for cloud storage)');
+        setUploadedFiles(prev => [...prev, fileInfo]);
+        toast.success(`${file.name} uploaded successfully! (Demo mode - Configure Cloudinary for cloud storage)`);
         return blobUrl;
       }
     } catch (error) {
@@ -85,8 +87,8 @@ function GuestRegistration() {
       // Prepare guest data
       const guestData = {
         ...data,
-        identityDocumentUrl: uploadedFile?.url || null,
-        identityDocumentName: uploadedFile?.name || null,
+        identityDocumentUrl: uploadedFiles.map(file => file.url),
+        identityDocumentName: uploadedFiles.map(file => file.name),
         registrationDate: serverTimestamp(),
         status: 'pending'
       };
@@ -96,13 +98,15 @@ function GuestRegistration() {
       
       toast.success('Registration submitted successfully!');
       
-      // Clean up blob URL before resetting (only for non-Cloudinary files)
-      if (uploadedFile?.url && uploadedFile.url.startsWith('blob:') && !uploadedFile.isCloudinary) {
-        URL.revokeObjectURL(uploadedFile.url);
-      }
+      // Clean up blob URLs before resetting
+      uploadedFiles.forEach(file => {
+        if (file?.url && file.url.startsWith('blob:') && !file.isCloudinary) {
+          URL.revokeObjectURL(file.url);
+        }
+      });
       
       reset();
-      setUploadedFile(null);
+      setUploadedFiles([]);
     } catch (error) {
       console.error('Error submitting registration:', error);
       toast.error('Failed to submit registration. Please try again.');
@@ -111,23 +115,27 @@ function GuestRegistration() {
     }
   };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
+  const handleFileChange = async (e) => {
+    const files = Array.from(e.target.files);
+    
+    // Validate each file
+    for (const file of files) {
       // Validate file type
       const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
       if (!allowedTypes.includes(file.type)) {
-        toast.error('Please upload a valid image (JPEG, PNG) or PDF file.');
-        return;
+        toast.error(`${file.name}: Please upload a valid image (JPEG, PNG) or PDF file.`);
+        continue;
       }
       
       // Validate file size (max 100MB)
       if (file.size > 100 * 1024 * 1024) {
-        toast.error('File size must be less than 100MB.');
-        return;
+        toast.error(`${file.name}: File size must be less than 100MB.`);
+        continue;
       }
-      
-      handleFileUpload(file);
+
+      setIsUploading(true);
+      await handleFileUpload(file);
+      setIsUploading(false);
     }
   };
 
@@ -274,31 +282,65 @@ function GuestRegistration() {
           <div className="form-group">
             <label className="form-label">
               <Upload size={18} style={{ display: 'inline', marginRight: '8px' }} />
-              Upload ID Document (Optional)
+              Upload ID Documents
             </label>
             <input
               type="file"
               accept=".jpg,.jpeg,.png,.pdf"
+              multiple
               onChange={handleFileChange}
               className="form-input"
               style={{ padding: '8px' }}
             />
-            {uploadedFile && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                <CheckCircle size={16} color="#059669" />
-                <span className="success-message">
-                  {uploadedFile.name} uploaded successfully
-                </span>
+            {uploadedFiles.length > 0 && (
+              <div style={{ marginTop: '16px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                  {uploadedFiles.map((file, idx) => (
+                    <div key={idx} style={{ position: 'relative' }}>
+                      {file.type.startsWith('image/') ? (
+                        <img
+                          src={file.url}
+                          alt={`upload-${idx}`}
+                          style={{
+                            width: '100px',
+                            height: '100px',
+                            objectFit: 'cover',
+                            borderRadius: '8px',
+                            border: '1px solid #e5e7eb'
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: '100px',
+                            height: '100px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: '#f3f4f6',
+                            borderRadius: '8px',
+                            border: '1px solid #e5e7eb'
+                          }}
+                        >
+                          PDF
+                        </div>
+                      )}
+                      <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {file.name}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {isUploading && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
                 <div className="loading"></div>
-                <span>Uploading document...</span>
+                <span>Uploading documents...</span>
               </div>
             )}
             <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-              Upload your ID document (JPEG, PNG, or PDF, max 100MB) - Using Cloudinary free storage
+              Upload your ID documents (JPEG, PNG, or PDF, max 100MB each)
             </p>
           </div>
         </div>
