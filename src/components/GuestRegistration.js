@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
+import { uploadToCloudinary } from '../cloudinary';
 import toast from 'react-hot-toast';
 import { User, Phone, Upload, CheckCircle, Users, Calendar, CreditCard, Globe } from 'lucide-react';
 
@@ -18,35 +18,60 @@ function GuestRegistration() {
     formState: { errors }
   } = useForm();
 
+  // Cleanup blob URLs on component unmount (only for non-Cloudinary files)
+  useEffect(() => {
+    return () => {
+      if (uploadedFile?.url && uploadedFile.url.startsWith('blob:') && !uploadedFile.isCloudinary) {
+        URL.revokeObjectURL(uploadedFile.url);
+      }
+    };
+  }, [uploadedFile]);
+
   const handleFileUpload = async (file) => {
     if (!file) return null;
     
     setIsUploading(true);
+    
     try {
-      const fileName = `identity_docs/${Date.now()}_${file.name}`;
-      const fileRef = ref(storage, fileName);
-      
-      await uploadBytes(fileRef, file);
-      const downloadURL = await getDownloadURL(fileRef);
-      
-      setUploadedFile({ name: file.name, url: downloadURL });
-      toast.success('Document uploaded successfully!');
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      
-      // Fallback: If Firebase Storage isn't configured, simulate upload
-      if (error.code === 'storage/invalid-project-id' || 
-          error.code === 'storage/project-not-found' ||
-          error.message.includes('CORS') ||
-          error.message.includes('XMLHttpRequest') ||
-          error.name === 'FirebaseError') {
-        setUploadedFile({ name: file.name, url: 'placeholder-url' });
-        toast.success('Document uploaded successfully! (Storage will be configured later)');
-        return 'placeholder-url';
+      // Try Cloudinary upload first
+      try {
+        const cloudinaryResult = await uploadToCloudinary(file);
+        
+        const fileInfo = {
+          name: file.name,
+          size: cloudinaryResult.size,
+          type: file.type,
+          url: cloudinaryResult.url,
+          publicId: cloudinaryResult.publicId,
+          isCloudinary: true
+        };
+        
+        setUploadedFile(fileInfo);
+        toast.success('Document uploaded successfully to Cloudinary!');
+        return cloudinaryResult.url;
+      } catch (cloudinaryError) {
+        console.warn('Cloudinary upload failed, falling back to local storage:', cloudinaryError);
+        
+        // Fallback to blob URL for demo mode
+        const blobUrl = URL.createObjectURL(file);
+        
+        const fileInfo = {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          url: blobUrl,
+          originalFile: file,
+          isCloudinary: false
+        };
+        
+        setUploadedFile(fileInfo);
+        toast.success('Document uploaded successfully! (Demo mode - Configure Cloudinary for cloud storage)');
+        return blobUrl;
       }
-      
-      toast.error('Failed to upload document. Please try again.');
+    } catch (error) {
+      console.error('Error processing file:', error);
+      toast.error('Failed to process document. Please try again.');
       return null;
     } finally {
       setIsUploading(false);
@@ -70,6 +95,12 @@ function GuestRegistration() {
       await addDoc(collection(db, 'guests'), guestData);
       
       toast.success('Registration submitted successfully!');
+      
+      // Clean up blob URL before resetting (only for non-Cloudinary files)
+      if (uploadedFile?.url && uploadedFile.url.startsWith('blob:') && !uploadedFile.isCloudinary) {
+        URL.revokeObjectURL(uploadedFile.url);
+      }
+      
       reset();
       setUploadedFile(null);
     } catch (error) {
@@ -90,9 +121,9 @@ function GuestRegistration() {
         return;
       }
       
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('File size must be less than 5MB.');
+      // Validate file size (max 100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        toast.error('File size must be less than 100MB.');
         return;
       }
       
@@ -267,7 +298,7 @@ function GuestRegistration() {
               </div>
             )}
             <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-              Upload your ID document (JPEG, PNG, or PDF, max 5MB) - Storage will be configured later
+              Upload your ID document (JPEG, PNG, or PDF, max 100MB) - Using Cloudinary free storage
             </p>
           </div>
         </div>

@@ -15,6 +15,7 @@ function AdminPanel() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedGuest, setSelectedGuest] = useState(null);
+  const [documentViewer, setDocumentViewer] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -126,6 +127,16 @@ function AdminPanel() {
       case 'voter': return 'Voter ID';
       case 'passport': return 'Passport';
       default: return idType;
+    }
+  };
+
+  const viewDocument = (guest) => {
+    if (guest.identityDocumentUrl) {
+      setDocumentViewer({
+        url: guest.identityDocumentUrl,
+        name: guest.identityDocumentName || `${guest.name}_ID_Document`,
+        type: guest.identityDocumentUrl.includes('.pdf') ? 'pdf' : 'image'
+      });
     }
   };
 
@@ -300,15 +311,14 @@ function AdminPanel() {
                           <Eye size={14} />
                         </button>
                         {guest.identityDocumentUrl && (
-                          <a
-                            href={guest.identityDocumentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => viewDocument(guest)}
                             className="btn btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none' }}
+                            style={{ padding: '6px 12px', fontSize: '12px' }}
+                            title="View Document"
                           >
                             <ExternalLink size={14} />
-                          </a>
+                          </button>
                         )}
                         <button
                           onClick={() => deleteGuest(guest.id)}
@@ -406,16 +416,13 @@ function AdminPanel() {
               <div style={{ marginTop: '20px' }}>
                 <strong>ID Document:</strong>
                 <p>
-                  <a
-                    href={selectedGuest.identityDocumentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => viewDocument(selectedGuest)}
                     className="btn btn-primary"
-                    style={{ textDecoration: 'none' }}
                   >
                     <ExternalLink size={16} />
                     View Document
-                  </a>
+                  </button>
                 </p>
               </div>
             )}
@@ -423,6 +430,98 @@ function AdminPanel() {
             <div style={{ marginTop: '20px' }}>
               <strong>Registration Date:</strong>
               <p>{formatDate(selectedGuest.registrationDate)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Viewer Modal */}
+      {documentViewer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1001,
+            padding: '20px'
+          }}
+          onClick={() => setDocumentViewer(null)}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '20px',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, color: '#374151' }}>Document Viewer</h3>
+              <button
+                onClick={() => setDocumentViewer(null)}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px' }}
+              >
+                Close
+              </button>
+            </div>
+            
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ marginBottom: '15px', color: '#6b7280' }}>
+                <strong>File:</strong> {documentViewer.name}
+              </p>
+              
+              {documentViewer.type === 'pdf' ? (
+                <div style={{ background: '#f3f4f6', padding: '40px', borderRadius: '8px' }}>
+                  <p style={{ color: '#6b7280', marginBottom: '15px' }}>
+                    PDF Preview not available in demo mode
+                  </p>
+                  <a
+                    href={documentViewer.url}
+                    download={documentViewer.name}
+                    className="btn btn-primary"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <Download size={16} />
+                    Download PDF
+                  </a>
+                </div>
+              ) : (
+                <div>
+                  <img
+                    src={documentViewer.url}
+                    alt="ID Document"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '70vh',
+                      objectFit: 'contain',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <div style={{ marginTop: '15px' }}>
+                    <a
+                      href={documentViewer.url}
+                      download={documentViewer.name}
+                      className="btn btn-secondary"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <Download size={16} />
+                      Download Image
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
