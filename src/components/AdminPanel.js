@@ -3,7 +3,7 @@ import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from '
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import toast from 'react-hot-toast';
-import { Users, Eye, Trash2, Download, Search, ExternalLink } from 'lucide-react';
+import { Users, Eye, Trash2, Download, Search, ExternalLink, ChevronDown, ChevronUp, X } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 import Login from './Login';
@@ -18,6 +18,7 @@ function AdminPanel() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [documentViewer, setDocumentViewer] = useState(null);
+  const [expandedGuests, setExpandedGuests] = useState(new Set());
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -65,7 +66,12 @@ function AdminPanel() {
       filtered = filtered.filter(guest => 
         guest.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         guest.contactNumber?.includes(searchTerm) ||
-        guest.nationality?.toLowerCase().includes(searchTerm.toLowerCase())
+        guest.nationality?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        // Also search in additional guests
+        guest.additionalGuests?.some(additionalGuest =>
+          additionalGuest.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          additionalGuest.nationality?.toLowerCase().includes(searchTerm.toLowerCase())
+        )
       );
     }
 
@@ -132,18 +138,38 @@ function AdminPanel() {
     }
   };
 
-  const viewDocument = (guest) => {
-    if (guest.identityDocumentUrl) {
-      // Support both array and string for backward compatibility
-      const urls = Array.isArray(guest.identityDocumentUrl) ? guest.identityDocumentUrl : [guest.identityDocumentUrl];
-      const names = Array.isArray(guest.identityDocumentName) ? guest.identityDocumentName : [guest.identityDocumentName || `${guest.name}_ID_Document`];
-      
-      setDocumentViewer({
-        urls,
-        names,
-        currentIndex: 0,
-        type: urls[0]?.includes('.pdf') ? 'pdf' : 'image'
-      });
+  const toggleGuestExpansion = (guestId) => {
+    const newExpanded = new Set(expandedGuests);
+    if (newExpanded.has(guestId)) {
+      newExpanded.delete(guestId);
+    } else {
+      newExpanded.add(guestId);
+    }
+    setExpandedGuests(newExpanded);
+  };
+
+  const viewDocument = (guest, isAdditionalGuest = false) => {
+    if (isAdditionalGuest) {
+      if (guest.identityDocumentUrl && guest.identityDocumentUrl.length > 0) {
+        setDocumentViewer({
+          urls: guest.identityDocumentUrl,
+          names: guest.identityDocumentName || guest.identityDocumentUrl.map(() => `${guest.name}_ID_Document`),
+          currentIndex: 0,
+          type: 'image'
+        });
+      }
+    } else {
+      if (guest.identityDocumentUrl) {
+        const urls = Array.isArray(guest.identityDocumentUrl) ? guest.identityDocumentUrl : [guest.identityDocumentUrl];
+        const names = Array.isArray(guest.identityDocumentName) ? guest.identityDocumentName : [guest.identityDocumentName || `${guest.name}_ID_Document`];
+        
+        setDocumentViewer({
+          urls,
+          names,
+          currentIndex: 0,
+          type: 'image'
+        });
+      }
     }
   };
 
@@ -168,31 +194,67 @@ function AdminPanel() {
   };
 
   const exportToExcel = async () => {
+    let loadingToast;
     try {
       setIsLoading(true);
-      toast.loading('Preparing export with images...');
+      loadingToast = toast.loading('Preparing export...');
 
       // Create workbook and worksheet
       const wb = XLSX.utils.book_new();
       
-      // Prepare the data rows first (without images)
-      const wsData = filteredGuests.map(guest => ({
-        'Name': guest.name || '',
-        'No. of Guests': guest.numberOfGuests || '',
-        'Contact Number': guest.contactNumber || '',
-        'Nationality': guest.nationality || '',
-        'ID Type': getIdTypeLabel(guest.idType) || '',
-        'ID Number': guest.idNumber || '',
-        'Check-in Date': guest.checkinDate || '',
-        'Status': guest.status || '',
-        'Registration Date': formatDate(guest.registrationDate)
-      }));
+      // Prepare the data rows (including additional guests)
+      const wsData = [];
+      
+      filteredGuests.forEach(guest => {
+        // Add primary guest
+        const primaryGuestUrls = Array.isArray(guest.identityDocumentUrl) 
+          ? guest.identityDocumentUrl.join('\n') 
+          : guest.identityDocumentUrl || '';
+
+        wsData.push({
+          'Guest Type': 'Primary',
+          'Name': guest.name || '',
+          'No. of Guests': guest.numberOfGuests || '',
+          'Contact Number': guest.contactNumber || '',
+          'Nationality': guest.nationality || '',
+          'ID Type': getIdTypeLabel(guest.idType) || '',
+          'ID Number': guest.idNumber || '',
+          'Check-in Date': guest.checkinDate || '',
+          'Status': guest.status || '',
+          'Registration Date': formatDate(guest.registrationDate),
+          'Document URLs': primaryGuestUrls
+        });
+
+        // Add additional guests if any
+        if (guest.additionalGuests && guest.additionalGuests.length > 0) {
+          guest.additionalGuests.forEach((additionalGuest, index) => {
+            const additionalGuestUrls = Array.isArray(additionalGuest.identityDocumentUrl) 
+              ? additionalGuest.identityDocumentUrl.join('\n') 
+              : additionalGuest.identityDocumentUrl || '';
+
+            wsData.push({
+              'Guest Type': `Additional Guest ${index + 1}`,
+              'Name': additionalGuest.name || '',
+              'No. of Guests': '',
+              'Contact Number': '',
+              'Nationality': additionalGuest.nationality || '',
+              'ID Type': getIdTypeLabel(additionalGuest.idType) || '',
+              'ID Number': additionalGuest.idNumber || '',
+              'Check-in Date': guest.checkinDate || '',
+              'Status': guest.status || '',
+              'Registration Date': formatDate(guest.registrationDate),
+              'Document URLs': additionalGuestUrls
+            });
+          });
+        }
+      });
 
       // Create worksheet
       const ws = XLSX.utils.json_to_sheet(wsData);
 
       // Set column widths
       ws['!cols'] = [
+        { wch: 20 }, // Guest Type
         { wch: 20 }, // Name
         { wch: 15 }, // No. of Guests
         { wch: 15 }, // Contact Number
@@ -202,110 +264,33 @@ function AdminPanel() {
         { wch: 15 }, // Check-in Date
         { wch: 15 }, // Status
         { wch: 20 }, // Registration Date
-        { wch: 30 }, // Image column
+        { wch: 100 }, // Document URLs
       ];
 
-      // Set row heights
-      ws['!rows'] = wsData.map(() => ({ hpt: 150 })); // Set height for all rows
-
-      // Process images for each guest
-      for (let i = 0; i < filteredGuests.length; i++) {
-        const guest = filteredGuests[i];
-        const urls = Array.isArray(guest.identityDocumentUrl) 
-          ? guest.identityDocumentUrl 
-          : guest.identityDocumentUrl ? [guest.identityDocumentUrl] : [];
-
-        // Process each image for the current guest
-        for (let j = 0; j < urls.length; j++) {
-          const url = urls[j];
-          try {
-            // Download image
-            const imageBlob = await downloadImage(url);
-            if (!imageBlob) continue;
-
-            // Convert to base64
-            const base64 = await blobToBase64(imageBlob);
-            if (!base64) continue;
-
-            // Calculate cell position (9 + j is the column index after the regular data)
-            const cellRef = XLSX.utils.encode_cell({ r: i + 1, c: 9 + j });
-
-            // Add image to cell
-            ws[cellRef] = {
-              t: 's',
-              v: 'ID Document ' + (j + 1),
-              s: {
-                alignment: {
-                  vertical: 'center',
-                  horizontal: 'center'
-                }
-              }
-            };
-
-            // Add image to worksheet
-            if (!ws['!images']) ws['!images'] = [];
-            ws['!images'].push({
-              name: 'image' + i + '_' + j,
-              data: base64,
-              position: {
-                type: 'twoCellAnchor',
-                from: {
-                  col: 9 + j,
-                  row: i + 1,
-                  colOff: 0,
-                  rowOff: 0
-                },
-                to: {
-                  col: 10 + j,
-                  row: i + 2,
-                  colOff: 0,
-                  rowOff: 0
-                }
-              }
-            });
-          } catch (error) {
-            console.error('Error processing image:', error);
-            continue;
-          }
-        }
-      }
-
-      // Add the worksheet to workbook
+      // Add the worksheet to the workbook
       XLSX.utils.book_append_sheet(wb, ws, 'Guest Registrations');
 
       // Generate Excel file
-      const excelBuffer = XLSX.write(wb, { 
-        bookType: 'xlsx', 
-        type: 'array',
-        cellStyles: true,
-        compression: true
-      });
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       
-      // Create and save file
-      const blob = new Blob([excelBuffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      });
-      
-      saveAs(blob, `guest_registrations_${new Date().toISOString().split('T')[0]}.xlsx`);
+      // Get current date for filename
+      const date = new Date().toISOString().split('T')[0];
+      saveAs(data, `guest_registrations_${date}.xlsx`);
 
-      toast.dismiss();
-      toast.success('Export completed with images!');
+      toast.dismiss(loadingToast);
+      toast.success('Export completed successfully!');
     } catch (error) {
-      console.error('Export error:', error);
-      toast.dismiss();
-      toast.error('Failed to export data. Please try again.');
+      console.error('Error exporting to Excel:', error);
+      toast.dismiss(loadingToast);
+      toast.error('Failed to export data');
     } finally {
       setIsLoading(false);
     }
   };
 
   if (loading) {
-    return (
-      <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
-        <div className="loading" style={{ margin: '0 auto' }}></div>
-        <p style={{ marginTop: '20px' }}>Loading...</p>
-      </div>
-    );
+    return <div>Loading...</div>;
   }
 
   if (!user) {
@@ -313,384 +298,226 @@ function AdminPanel() {
   }
 
   return (
-    <div>
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Users size={28} color="#667eea" />
-            <h2 style={{ margin: 0, color: '#374151' }}>Admin Panel</h2>
+    <div className="admin-panel">
+      <div className="header">
+        <div className="title">
+          <Users size={28} color="#667eea" />
+          <h1>Guest Registrations</h1>
+        </div>
+        
+        <div className="filters">
+          <div className="search-box">
+            <Search size={20} />
+            <input
+              type="text"
+              placeholder="Search by name, contact, or nationality"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          <button onClick={() => auth.signOut()} className="btn btn-secondary">
-            Sign Out
+          
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="status-filter"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          
+          <button onClick={exportToExcel} className="export-btn" disabled={isLoading}>
+            <Download size={20} />
+            Export to Excel
           </button>
         </div>
-
-        <div style={{ marginBottom: '24px' }}>
-          <div className="grid grid-3" style={{ marginBottom: '16px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={20} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-              <input
-                type="text"
-                placeholder="Search guests..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="form-input"
-                style={{ paddingLeft: '40px' }}
-              />
-            </div>
-            
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="form-select"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-            </select>
-            
-            <button
-              onClick={exportToExcel}
-              className="btn btn-secondary"
-              disabled={isLoading}
-              style={{ marginLeft: '10px' }}
-            >
-              <Download size={16} />
-              {isLoading ? 'Preparing Export...' : 'Export Excel'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '16px', padding: '12px', background: '#f3f4f6', borderRadius: '8px' }}>
-          <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-            Total Registrations: {guests.length} | 
-            Showing: {filteredGuests.length} | 
-            Pending: {guests.filter(g => g.status === 'pending').length} | 
-            Approved: {guests.filter(g => g.status === 'approved').length} | 
-            Rejected: {guests.filter(g => g.status === 'rejected').length}
-          </p>
-        </div>
-
-        {isLoading ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <div className="loading" style={{ margin: '0 auto' }}></div>
-            <p style={{ marginTop: '16px' }}>Loading guest registrations...</p>
-          </div>
-        ) : filteredGuests.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <Users size={48} color="#d1d5db" />
-            <p style={{ marginTop: '16px', color: '#6b7280' }}>No guest registrations found</p>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Guest Details</th>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Contact</th>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>ID Information</th>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Check-in</th>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
-                  <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredGuests.map((guest) => (
-                  <tr key={guest.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                    <td style={{ padding: '12px' }}>
-                      <div>
-                        <strong>{guest.name}</strong>
-                        <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                          {guest.numberOfGuests} guest{guest.numberOfGuests > 1 ? 's' : ''} • {guest.nationality}
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ fontSize: '14px' }}>
-                        {guest.contactNumber}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ fontSize: '14px' }}>
-                        {getIdTypeLabel(guest.idType)}<br />
-                        {guest.idNumber}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px', fontSize: '14px' }}>
-                      {guest.checkinDate ? new Date(guest.checkinDate).toLocaleDateString() : 'N/A'}
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      <select
-                        value={guest.status || 'pending'}
-                        onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid #e5e7eb',
-                          fontSize: '12px',
-                          color: getStatusColor(guest.status),
-                          fontWeight: '600'
-                        }}
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
-                      </select>
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          onClick={() => setSelectedGuest(guest)}
-                          className="btn btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          <Eye size={14} />
-                        </button>
-                        {guest.identityDocumentUrl && (
-                          <button
-                            onClick={() => viewDocument(guest)}
-                            className="btn btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '12px' }}
-                            title="View Document"
-                          >
-                            <ExternalLink size={14} />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteGuest(guest.id)}
-                          className="btn btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: '12px', color: '#dc2626' }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
-      {selectedGuest && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px'
-          }}
-          onClick={() => setSelectedGuest(null)}
-        >
-          <div
-            className="card"
-            style={{
-              maxWidth: '500px',
-              width: '100%',
-              maxHeight: '80vh',
-              overflowY: 'auto'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0 }}>Guest Details</h3>
-              <button
-                onClick={() => setSelectedGuest(null)}
-                className="btn btn-secondary"
-                style={{ padding: '8px 16px' }}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid grid-2">
-              <div>
-                <strong>Name:</strong>
-                <p>{selectedGuest.name}</p>
+      <div className="guests-list">
+        {filteredGuests.map(guest => (
+          <div key={guest.id} className="guest-card">
+            <div className="guest-header" onClick={() => toggleGuestExpansion(guest.id)}>
+              <div className="guest-info">
+                <h3>{guest.name}</h3>
+                <span className="guest-meta">
+                  {guest.contactNumber} • {formatDate(guest.registrationDate)}
+                </span>
               </div>
-              <div>
-                <strong>No. of Guests:</strong>
-                <p>{selectedGuest.numberOfGuests}</p>
-              </div>
-              <div>
-                <strong>Contact Number:</strong>
-                <p>{selectedGuest.contactNumber}</p>
-              </div>
-              <div>
-                <strong>Nationality:</strong>
-                <p>{selectedGuest.nationality}</p>
-              </div>
-              <div>
-                <strong>ID Type:</strong>
-                <p>{getIdTypeLabel(selectedGuest.idType)}</p>
-              </div>
-              <div>
-                <strong>ID Number:</strong>
-                <p>{selectedGuest.idNumber}</p>
-              </div>
-              <div>
-                <strong>Check-in Date:</strong>
-                <p>{selectedGuest.checkinDate ? new Date(selectedGuest.checkinDate).toLocaleDateString() : 'N/A'}</p>
-              </div>
-              <div>
-                <strong>Status:</strong>
-                <p style={{ color: getStatusColor(selectedGuest.status), fontWeight: '600' }}>
-                  {selectedGuest.status?.charAt(0).toUpperCase() + selectedGuest.status?.slice(1)}
-                </p>
+              
+              <div className="guest-actions">
+                <span className={`status-badge ${guest.status}`}>
+                  {guest.status}
+                </span>
+                
+                <button
+                  className="action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    viewDocument(guest);
+                  }}
+                >
+                  <Eye size={18} />
+                  View Documents
+                </button>
+                
+                <select
+                  value={guest.status}
+                  onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ backgroundColor: getStatusColor(guest.status) }}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                
+                <button
+                  className="action-btn delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteGuest(guest.id);
+                  }}
+                >
+                  <Trash2 size={18} />
+                </button>
+                
+                {expandedGuests.has(guest.id) ? (
+                  <ChevronUp size={20} />
+                ) : (
+                  <ChevronDown size={20} />
+                )}
               </div>
             </div>
 
-            {selectedGuest.identityDocumentUrl && (
-              <div style={{ marginTop: '20px' }}>
-                <strong>ID Document:</strong>
-                <p>
-                  <button
-                    onClick={() => viewDocument(selectedGuest)}
-                    className="btn btn-primary"
-                  >
-                    <ExternalLink size={16} />
-                    View Document
-                  </button>
-                </p>
+            {expandedGuests.has(guest.id) && (
+              <div className="guest-details">
+                <div className="guest-section">
+                  <h4>Primary Guest Details</h4>
+                  <div className="details-grid">
+                    <div>
+                      <strong>Check-in Date:</strong> {guest.checkinDate}
+                    </div>
+                    <div>
+                      <strong>Contact Number:</strong> {guest.contactNumber}
+                    </div>
+                    <div>
+                      <strong>Nationality:</strong> {guest.nationality}
+                    </div>
+                    <div>
+                      <strong>ID Type:</strong> {getIdTypeLabel(guest.idType)}
+                    </div>
+                    <div>
+                      <strong>ID Number:</strong> {guest.idNumber}
+                    </div>
+                    <div>
+                      <strong>Number of Guests:</strong> {guest.numberOfGuests}
+                    </div>
+                  </div>
+                </div>
+
+                {guest.additionalGuests && guest.additionalGuests.length > 0 && (
+                  <div className="additional-guests">
+                    <h4>Additional Guests</h4>
+                    {guest.additionalGuests.map((additionalGuest, index) => (
+                      <div key={index} className="additional-guest-card">
+                        <div className="additional-guest-info">
+                          <h5>{additionalGuest.name || `Guest ${index + 2}`}</h5>
+                          <div className="details-grid">
+                            <div>
+                              <strong>Nationality:</strong> {additionalGuest.nationality}
+                            </div>
+                            <div>
+                              <strong>ID Type:</strong> {getIdTypeLabel(additionalGuest.idType)}
+                            </div>
+                            <div>
+                              <strong>ID Number:</strong> {additionalGuest.idNumber}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="additional-guest-actions">
+                          {additionalGuest.identityDocumentUrl && additionalGuest.identityDocumentUrl.length > 0 && (
+                            <button
+                              className="action-btn"
+                              onClick={() => viewDocument(additionalGuest, true)}
+                            >
+                              <Eye size={18} />
+                              View Documents
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-
-            <div style={{ marginTop: '20px' }}>
-              <strong>Registration Date:</strong>
-              <p>{formatDate(selectedGuest.registrationDate)}</p>
-            </div>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
 
       {/* Document Viewer Modal */}
       {documentViewer && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1001,
-            padding: '20px'
-          }}
-          onClick={() => setDocumentViewer(null)}
-        >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '20px',
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              position: 'relative'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, color: '#374151' }}>Document Viewer</h3>
-              <button
-                onClick={() => setDocumentViewer(null)}
-                className="btn btn-secondary"
-                style={{ padding: '8px 16px' }}
-              >
-                Close
-              </button>
-            </div>
+        <div className="modal">
+          <div className="modal-content">
+            <button className="close-btn" onClick={() => setDocumentViewer(null)}>
+              <X size={24} />
+            </button>
             
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ marginBottom: '15px', color: '#6b7280' }}>
-                <strong>File:</strong> {documentViewer.names[documentViewer.currentIndex]}
-                {documentViewer.urls.length > 1 && (
-                  <span style={{ marginLeft: '10px', color: '#6b7280' }}>
-                    ({documentViewer.currentIndex + 1} of {documentViewer.urls.length})
-                  </span>
-                )}
-              </p>
+            <div className="document-viewer">
+              <img
+                src={documentViewer.urls[documentViewer.currentIndex]}
+                alt="Document"
+                style={{ maxWidth: '100%', maxHeight: '500px', objectFit: 'contain' }}
+              />
               
-              {documentViewer.type === 'pdf' ? (
-                <div style={{ background: '#f3f4f6', padding: '40px', borderRadius: '8px' }}>
-                  <p style={{ color: '#6b7280', marginBottom: '15px' }}>
-                    PDF Preview not available in demo mode
-                  </p>
+              <div className="document-actions">
+                <p>{documentViewer.names[documentViewer.currentIndex]}</p>
+                <div className="action-buttons">
                   <a
                     href={documentViewer.urls[documentViewer.currentIndex]}
-                    download={documentViewer.names[documentViewer.currentIndex]}
-                    className="btn btn-primary"
-                    style={{ textDecoration: 'none' }}
+                    download
+                    className="download-link"
                   >
-                    <Download size={16} />
-                    Download PDF
+                    <Download size={18} />
+                    Download Image
+                  </a>
+                  <a
+                    href={documentViewer.urls[documentViewer.currentIndex]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="download-link"
+                  >
+                    <ExternalLink size={18} />
+                    Open in New Tab
                   </a>
                 </div>
-              ) : (
-                <div>
-                  <img
-                    src={documentViewer.urls[documentViewer.currentIndex]}
-                    alt="ID Document"
-                    style={{
-                      maxWidth: '100%',
-                      maxHeight: '70vh',
-                      objectFit: 'contain',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <div style={{ marginTop: '15px' }}>
-                    <a
-                      href={documentViewer.urls[documentViewer.currentIndex]}
-                      download={documentViewer.names[documentViewer.currentIndex]}
-                      className="btn btn-secondary"
-                      style={{ textDecoration: 'none' }}
+                {documentViewer.urls.length > 1 && (
+                  <div className="document-navigation">
+                    <button
+                      onClick={() => setDocumentViewer({
+                        ...documentViewer,
+                        currentIndex: Math.max(0, documentViewer.currentIndex - 1)
+                      })}
+                      disabled={documentViewer.currentIndex === 0}
                     >
-                      <Download size={16} />
-                      Download Image
-                    </a>
+                      Previous
+                    </button>
+                    <span>
+                      {documentViewer.currentIndex + 1} of {documentViewer.urls.length}
+                    </span>
+                    <button
+                      onClick={() => setDocumentViewer({
+                        ...documentViewer,
+                        currentIndex: Math.min(documentViewer.urls.length - 1, documentViewer.currentIndex + 1)
+                      })}
+                      disabled={documentViewer.currentIndex === documentViewer.urls.length - 1}
+                    >
+                      Next
+                    </button>
                   </div>
-                </div>
-              )}
-              
-              {documentViewer.urls.length > 1 && (
-                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '10px', alignItems: 'center' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setDocumentViewer(v => ({
-                      ...v,
-                      currentIndex: (v.currentIndex - 1 + v.urls.length) % v.urls.length,
-                      type: v.urls[(v.currentIndex - 1 + v.urls.length) % v.urls.length].includes('.pdf') ? 'pdf' : 'image'
-                    }))}
-                    disabled={documentViewer.currentIndex === 0}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setDocumentViewer(v => ({
-                      ...v,
-                      currentIndex: (v.currentIndex + 1) % v.urls.length,
-                      type: v.urls[(v.currentIndex + 1) % v.urls.length].includes('.pdf') ? 'pdf' : 'image'
-                    }))}
-                    disabled={documentViewer.currentIndex === documentViewer.urls.length - 1}
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
