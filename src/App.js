@@ -5,6 +5,7 @@ import { UserPlus, Shield } from 'lucide-react';
 import GuestRegistration from './components/GuestRegistration';
 import AdminPanel from './components/AdminPanel';
 import Login from './components/Login';
+import ScrollToButton from './components/ScrollToButton';
 
 function Navigation() {
   const location = useLocation();
@@ -49,6 +50,7 @@ function App() {
             <Route path="/login" element={<Login />} />
           </Routes>
         </div>
+        <ScrollToButton />
       </div>
     </Router>
   );
