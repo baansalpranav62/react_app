@@ -131,6 +131,17 @@ const successIconVariants = {
   }
 };
 
+function formatDate(date) {
+  if (!date) return '';
+  if (typeof date === 'string') return date;
+  if (date instanceof Date) return date.toLocaleDateString();
+  // Firestore Timestamp object
+  if (date.seconds) {
+    return new Date(date.seconds * 1000).toLocaleDateString();
+  }
+  return String(date);
+}
+
 function GuestRegistration() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -989,6 +1000,36 @@ function GuestRegistration() {
                     <span style={{ marginLeft: '8px', color: '#667eea' }}>Encrypting & Uploading...</span>
                   </motion.div>
                 )}
+                {/* Show image previews and security badge */}
+                {uploadedFiles.length > 0 && (
+                  <div style={{ marginTop: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      <Shield size={18} color="#059669" />
+                      <span style={{ color: '#059669', fontSize: '14px', fontWeight: 500 }}>Your IDs are secure</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                      {uploadedFiles.map((file, idx) => (
+                        <div key={idx} style={{ position: 'relative' }}>
+                          <img
+                            src={file.url}
+                            alt={file.name}
+                            style={{
+                              width: '80px',
+                              height: '80px',
+                              objectFit: 'cover',
+                              borderRadius: '8px',
+                              border: '1px solid #e5e7eb',
+                              background: '#f3f4f6'
+                            }}
+                          />
+                          <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {file.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
 
@@ -1115,26 +1156,26 @@ function GuestRegistration() {
                 <h3 style={{ margin: '0 0 15px 0', color: '#374151', fontSize: '18px' }}>Registration Details</h3>
                 <div style={{ display: 'grid', gap: '10px' }}>
                   <div>
-                    <strong>Primary Guest:</strong> {registeredGuest.name}
+                    <strong>Primary Guest:</strong> {registeredGuest.name || 'N/A'}
                   </div>
                   <div>
-                    <strong>Check-in Date:</strong> {registeredGuest.checkinDate}
+                    <strong>Check-in Date:</strong> {formatDate(registeredGuest.checkinDate)}
                   </div>
                   <div>
-                    <strong>Number of Guests:</strong> {registeredGuest.numberOfGuests}
+                    <strong>Number of Guests:</strong> {registeredGuest.numberOfGuests || 'N/A'}
                   </div>
                   {registeredGuest.additionalGuests?.length > 0 && (
                     <div>
                       <strong>Additional Guests:</strong>
                       <ul style={{ margin: '8px 0 0 20px' }}>
                         {registeredGuest.additionalGuests.map((guest, index) => (
-                          <li key={index}>{guest.name}</li>
+                          <li key={index}>{guest.name || 'N/A'}</li>
                         ))}
                       </ul>
                     </div>
                   )}
                   <div>
-                    <strong>Registration ID:</strong> {registeredGuest.id}
+                    <strong>Registration ID:</strong> {registeredGuest.id || 'N/A'}
                   </div>
                 </div>
               </motion.div>
