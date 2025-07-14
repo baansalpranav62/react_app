@@ -3,7 +3,7 @@ import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from '
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import toast from 'react-hot-toast';
-import { Users, Eye, Trash2, Download, Search, ExternalLink, ChevronDown, ChevronUp, X, BarChart } from 'lucide-react';
+import { Users, Eye, Trash2, Download, Search, ExternalLink, ChevronDown, ChevronUp, X, BarChart, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 import Login from './Login';
@@ -21,6 +21,11 @@ function AdminPanel() {
   const [documentViewer, setDocumentViewer] = useState(null);
   const [expandedGuests, setExpandedGuests] = useState(new Set());
   const [showAnalytics, setShowAnalytics] = useState(true);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [guestsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -83,6 +88,97 @@ function AdminPanel() {
     }
 
     setFilteredGuests(filtered);
+    setTotalPages(Math.ceil(filtered.length / guestsPerPage));
+    setCurrentPage(1); // Reset to first page when filters change
+  };
+
+  // Get current guests for pagination
+  const getCurrentGuests = () => {
+    const indexOfLastGuest = currentPage * guestsPerPage;
+    const indexOfFirstGuest = indexOfLastGuest - guestsPerPage;
+    return filteredGuests.slice(indexOfFirstGuest, indexOfLastGuest);
+  };
+
+  // Change page
+  const paginate = (pageNumber) => {
+    setCurrentPage(pageNumber);
+  };
+
+  // Go to next page
+  const nextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  // Go to previous page
+  const prevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  // Pagination component
+  const Pagination = () => {
+    const pageNumbers = [];
+    const maxVisiblePages = 5;
+    
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pageNumbers.push(i);
+    }
+
+    return (
+      <div className="pagination">
+        <button 
+          className="pagination-btn" 
+          onClick={prevPage} 
+          disabled={currentPage === 1}
+        >
+          <ChevronLeft size={20} />
+        </button>
+
+        {startPage > 1 && (
+          <>
+            <button className="pagination-btn" onClick={() => paginate(1)}>1</button>
+            {startPage > 2 && <span className="pagination-ellipsis">...</span>}
+          </>
+        )}
+
+        {pageNumbers.map(number => (
+          <button
+            key={number}
+            className={`pagination-btn ${currentPage === number ? 'active' : ''}`}
+            onClick={() => paginate(number)}
+          >
+            {number}
+          </button>
+        ))}
+
+        {endPage < totalPages && (
+          <>
+            {endPage < totalPages - 1 && <span className="pagination-ellipsis">...</span>}
+            <button className="pagination-btn" onClick={() => paginate(totalPages)}>
+              {totalPages}
+            </button>
+          </>
+        )}
+
+        <button 
+          className="pagination-btn" 
+          onClick={nextPage} 
+          disabled={currentPage === totalPages}
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+    );
   };
 
   const updateGuestStatus = async (guestId, newStatus) => {
@@ -352,125 +448,128 @@ function AdminPanel() {
         ) : filteredGuests.length === 0 ? (
           <div>No guests found</div>
         ) : (
-          filteredGuests.map(guest => (
-            <div key={guest.id} className="guest-card">
-              <div className="guest-header" onClick={() => toggleGuestExpansion(guest.id)}>
-                <div className="guest-info">
-                  <h3>{guest.name}</h3>
-                  <span className="guest-meta">
-                    {guest.contactNumber} • {formatDate(guest.registrationDate)}
-                  </span>
+          <>
+            {getCurrentGuests().map(guest => (
+              <div key={guest.id} className="guest-card">
+                <div className="guest-header" onClick={() => toggleGuestExpansion(guest.id)}>
+                  <div className="guest-info">
+                    <h3>{guest.name}</h3>
+                    <span className="guest-meta">
+                      {guest.contactNumber} • {formatDate(guest.registrationDate)}
+                    </span>
+                  </div>
+                  
+                  <div className="guest-actions">
+                    <span className={`status-badge ${guest.status}`}>
+                      {guest.status}
+                    </span>
+                    
+                    <button
+                      className="action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        viewDocument(guest);
+                      }}
+                    >
+                      <Eye size={18} />
+                      View Documents
+                    </button>
+                    
+                    <select
+                      value={guest.status}
+                      onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ backgroundColor: getStatusColor(guest.status) }}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    
+                    <button
+                      className="action-btn delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteGuest(guest.id);
+                      }}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                    
+                    {expandedGuests.has(guest.id) ? (
+                      <ChevronUp size={20} />
+                    ) : (
+                      <ChevronDown size={20} />
+                    )}
+                  </div>
                 </div>
-                
-                <div className="guest-actions">
-                  <span className={`status-badge ${guest.status}`}>
-                    {guest.status}
-                  </span>
-                  
-                  <button
-                    className="action-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      viewDocument(guest);
-                    }}
-                  >
-                    <Eye size={18} />
-                    View Documents
-                  </button>
-                  
-                  <select
-                    value={guest.status}
-                    onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ backgroundColor: getStatusColor(guest.status) }}
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                  
-                  <button
-                    className="action-btn delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteGuest(guest.id);
-                    }}
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                  
-                  {expandedGuests.has(guest.id) ? (
-                    <ChevronUp size={20} />
-                  ) : (
-                    <ChevronDown size={20} />
-                  )}
-                </div>
-              </div>
 
-              {expandedGuests.has(guest.id) && (
-                <div className="guest-details">
-                  <div className="guest-section">
-                    <h4>Primary Guest Details</h4>
-                    <div className="details-grid">
-                      <div>
-                        <strong>Check-in Date:</strong> {guest.checkinDate}
-                      </div>
-                      <div>
-                        <strong>Contact Number:</strong> {guest.contactNumber}
-                      </div>
-                      <div>
-                        <strong>Nationality:</strong> {guest.nationality}
-                      </div>
-                      <div>
-                        <strong>ID Type:</strong> {getIdTypeLabel(guest.idType)}
-                      </div>
-                      <div>
-                        <strong>ID Number:</strong> {guest.idNumber}
-                      </div>
-                      <div>
-                        <strong>Number of Guests:</strong> {guest.numberOfGuests}
+                {expandedGuests.has(guest.id) && (
+                  <div className="guest-details">
+                    <div className="guest-section">
+                      <h4>Primary Guest Details</h4>
+                      <div className="details-grid">
+                        <div>
+                          <strong>Check-in Date:</strong> {guest.checkinDate}
+                        </div>
+                        <div>
+                          <strong>Contact Number:</strong> {guest.contactNumber}
+                        </div>
+                        <div>
+                          <strong>Nationality:</strong> {guest.nationality}
+                        </div>
+                        <div>
+                          <strong>ID Type:</strong> {getIdTypeLabel(guest.idType)}
+                        </div>
+                        <div>
+                          <strong>ID Number:</strong> {guest.idNumber}
+                        </div>
+                        <div>
+                          <strong>Number of Guests:</strong> {guest.numberOfGuests}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {guest.additionalGuests && guest.additionalGuests.length > 0 && (
-                    <div className="additional-guests">
-                      <h4>Additional Guests</h4>
-                      {guest.additionalGuests.map((additionalGuest, index) => (
-                        <div key={index} className="additional-guest-card">
-                          <div className="additional-guest-info">
-                            <h5>{additionalGuest.name || `Guest ${index + 2}`}</h5>
-                            <div className="details-grid">
-                              <div>
-                                <strong>Nationality:</strong> {additionalGuest.nationality}
-                              </div>
-                              <div>
-                                <strong>ID Type:</strong> {getIdTypeLabel(additionalGuest.idType)}
-                              </div>
-                              <div>
-                                <strong>ID Number:</strong> {additionalGuest.idNumber}
+                    {guest.additionalGuests && guest.additionalGuests.length > 0 && (
+                      <div className="additional-guests">
+                        <h4>Additional Guests</h4>
+                        {guest.additionalGuests.map((additionalGuest, index) => (
+                          <div key={index} className="additional-guest-card">
+                            <div className="additional-guest-info">
+                              <h5>{additionalGuest.name || `Guest ${index + 2}`}</h5>
+                              <div className="details-grid">
+                                <div>
+                                  <strong>Nationality:</strong> {additionalGuest.nationality}
+                                </div>
+                                <div>
+                                  <strong>ID Type:</strong> {getIdTypeLabel(additionalGuest.idType)}
+                                </div>
+                                <div>
+                                  <strong>ID Number:</strong> {additionalGuest.idNumber}
+                                </div>
                               </div>
                             </div>
+                            <div className="additional-guest-actions">
+                              {additionalGuest.identityDocumentUrl && additionalGuest.identityDocumentUrl.length > 0 && (
+                                <button
+                                  className="action-btn"
+                                  onClick={() => viewDocument(additionalGuest, true)}
+                                >
+                                  <Eye size={18} />
+                                  View Documents
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="additional-guest-actions">
-                            {additionalGuest.identityDocumentUrl && additionalGuest.identityDocumentUrl.length > 0 && (
-                              <button
-                                className="action-btn"
-                                onClick={() => viewDocument(additionalGuest, true)}
-                              >
-                                <Eye size={18} />
-                                View Documents
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            <Pagination />
+          </>
         )}
       </div>
 
