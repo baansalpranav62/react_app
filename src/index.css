@@ -310,6 +310,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-x: auto;
 }
 
 .guest-card {
@@ -317,6 +318,7 @@ body {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   overflow: hidden;
+  width: 100%;
 }
 
 .guest-header {
@@ -326,10 +328,16 @@ body {
   padding: 16px;
   cursor: pointer;
   transition: background-color 0.2s;
+  width: 100%;
 }
 
 .guest-header:hover {
   background-color: #f9fafb;
+}
+
+.guest-info {
+  flex: 1;
+  min-width: 150px;
 }
 
 .guest-info h3 {
@@ -347,6 +355,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .action-btn {
@@ -401,6 +410,7 @@ body {
   padding: 16px;
   border-top: 1px solid #e5e7eb;
   background-color: #f9fafb;
+  overflow-x: auto;
 }
 
 .guest-section {
@@ -461,6 +471,8 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
 }
 
 .details-grid > div {
