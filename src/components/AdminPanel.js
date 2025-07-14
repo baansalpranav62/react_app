@@ -3,10 +3,11 @@ import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from '
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import toast from 'react-hot-toast';
-import { Users, Eye, Trash2, Download, Search, ExternalLink, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Users, Eye, Trash2, Download, Search, ExternalLink, ChevronDown, ChevronUp, X, BarChart } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 import Login from './Login';
+import Analytics from './Analytics';
 
 function AdminPanel() {
   const [user, setUser] = useState(null);
@@ -19,6 +20,7 @@ function AdminPanel() {
   const [selectedGuest, setSelectedGuest] = useState(null);
   const [documentViewer, setDocumentViewer] = useState(null);
   const [expandedGuests, setExpandedGuests] = useState(new Set());
+  const [showAnalytics, setShowAnalytics] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -331,129 +333,145 @@ function AdminPanel() {
             <Download size={20} />
             Export to Excel
           </button>
+
+          <button
+            className="action-btn"
+            onClick={() => setShowAnalytics(!showAnalytics)}
+          >
+            <BarChart size={20} />
+            {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+          </button>
         </div>
       </div>
 
-      <div className="guests-list">
-        {filteredGuests.map(guest => (
-          <div key={guest.id} className="guest-card">
-            <div className="guest-header" onClick={() => toggleGuestExpansion(guest.id)}>
-              <div className="guest-info">
-                <h3>{guest.name}</h3>
-                <span className="guest-meta">
-                  {guest.contactNumber} • {formatDate(guest.registrationDate)}
-                </span>
-              </div>
-              
-              <div className="guest-actions">
-                <span className={`status-badge ${guest.status}`}>
-                  {guest.status}
-                </span>
-                
-                <button
-                  className="action-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    viewDocument(guest);
-                  }}
-                >
-                  <Eye size={18} />
-                  View Documents
-                </button>
-                
-                <select
-                  value={guest.status}
-                  onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ backgroundColor: getStatusColor(guest.status) }}
-                >
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-                
-                <button
-                  className="action-btn delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteGuest(guest.id);
-                  }}
-                >
-                  <Trash2 size={18} />
-                </button>
-                
-                {expandedGuests.has(guest.id) ? (
-                  <ChevronUp size={20} />
-                ) : (
-                  <ChevronDown size={20} />
-                )}
-              </div>
-            </div>
+      {showAnalytics && <Analytics guests={guests} />}
 
-            {expandedGuests.has(guest.id) && (
-              <div className="guest-details">
-                <div className="guest-section">
-                  <h4>Primary Guest Details</h4>
-                  <div className="details-grid">
-                    <div>
-                      <strong>Check-in Date:</strong> {guest.checkinDate}
-                    </div>
-                    <div>
-                      <strong>Contact Number:</strong> {guest.contactNumber}
-                    </div>
-                    <div>
-                      <strong>Nationality:</strong> {guest.nationality}
-                    </div>
-                    <div>
-                      <strong>ID Type:</strong> {getIdTypeLabel(guest.idType)}
-                    </div>
-                    <div>
-                      <strong>ID Number:</strong> {guest.idNumber}
-                    </div>
-                    <div>
-                      <strong>Number of Guests:</strong> {guest.numberOfGuests}
+      <div className="guests-list">
+        {isLoading ? (
+          <div>Loading...</div>
+        ) : filteredGuests.length === 0 ? (
+          <div>No guests found</div>
+        ) : (
+          filteredGuests.map(guest => (
+            <div key={guest.id} className="guest-card">
+              <div className="guest-header" onClick={() => toggleGuestExpansion(guest.id)}>
+                <div className="guest-info">
+                  <h3>{guest.name}</h3>
+                  <span className="guest-meta">
+                    {guest.contactNumber} • {formatDate(guest.registrationDate)}
+                  </span>
+                </div>
+                
+                <div className="guest-actions">
+                  <span className={`status-badge ${guest.status}`}>
+                    {guest.status}
+                  </span>
+                  
+                  <button
+                    className="action-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      viewDocument(guest);
+                    }}
+                  >
+                    <Eye size={18} />
+                    View Documents
+                  </button>
+                  
+                  <select
+                    value={guest.status}
+                    onChange={(e) => updateGuestStatus(guest.id, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ backgroundColor: getStatusColor(guest.status) }}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                  
+                  <button
+                    className="action-btn delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteGuest(guest.id);
+                    }}
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  
+                  {expandedGuests.has(guest.id) ? (
+                    <ChevronUp size={20} />
+                  ) : (
+                    <ChevronDown size={20} />
+                  )}
+                </div>
+              </div>
+
+              {expandedGuests.has(guest.id) && (
+                <div className="guest-details">
+                  <div className="guest-section">
+                    <h4>Primary Guest Details</h4>
+                    <div className="details-grid">
+                      <div>
+                        <strong>Check-in Date:</strong> {guest.checkinDate}
+                      </div>
+                      <div>
+                        <strong>Contact Number:</strong> {guest.contactNumber}
+                      </div>
+                      <div>
+                        <strong>Nationality:</strong> {guest.nationality}
+                      </div>
+                      <div>
+                        <strong>ID Type:</strong> {getIdTypeLabel(guest.idType)}
+                      </div>
+                      <div>
+                        <strong>ID Number:</strong> {guest.idNumber}
+                      </div>
+                      <div>
+                        <strong>Number of Guests:</strong> {guest.numberOfGuests}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {guest.additionalGuests && guest.additionalGuests.length > 0 && (
-                  <div className="additional-guests">
-                    <h4>Additional Guests</h4>
-                    {guest.additionalGuests.map((additionalGuest, index) => (
-                      <div key={index} className="additional-guest-card">
-                        <div className="additional-guest-info">
-                          <h5>{additionalGuest.name || `Guest ${index + 2}`}</h5>
-                          <div className="details-grid">
-                            <div>
-                              <strong>Nationality:</strong> {additionalGuest.nationality}
-                            </div>
-                            <div>
-                              <strong>ID Type:</strong> {getIdTypeLabel(additionalGuest.idType)}
-                            </div>
-                            <div>
-                              <strong>ID Number:</strong> {additionalGuest.idNumber}
+                  {guest.additionalGuests && guest.additionalGuests.length > 0 && (
+                    <div className="additional-guests">
+                      <h4>Additional Guests</h4>
+                      {guest.additionalGuests.map((additionalGuest, index) => (
+                        <div key={index} className="additional-guest-card">
+                          <div className="additional-guest-info">
+                            <h5>{additionalGuest.name || `Guest ${index + 2}`}</h5>
+                            <div className="details-grid">
+                              <div>
+                                <strong>Nationality:</strong> {additionalGuest.nationality}
+                              </div>
+                              <div>
+                                <strong>ID Type:</strong> {getIdTypeLabel(additionalGuest.idType)}
+                              </div>
+                              <div>
+                                <strong>ID Number:</strong> {additionalGuest.idNumber}
+                              </div>
                             </div>
                           </div>
+                          <div className="additional-guest-actions">
+                            {additionalGuest.identityDocumentUrl && additionalGuest.identityDocumentUrl.length > 0 && (
+                              <button
+                                className="action-btn"
+                                onClick={() => viewDocument(additionalGuest, true)}
+                              >
+                                <Eye size={18} />
+                                View Documents
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="additional-guest-actions">
-                          {additionalGuest.identityDocumentUrl && additionalGuest.identityDocumentUrl.length > 0 && (
-                            <button
-                              className="action-btn"
-                              onClick={() => viewDocument(additionalGuest, true)}
-                            >
-                              <Eye size={18} />
-                              View Documents
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Document Viewer Modal */}

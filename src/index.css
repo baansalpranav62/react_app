@@ -1072,3 +1072,56 @@ input::placeholder {
   align-items: center;
   gap: 0.5rem;
 } 
+
+/* Analytics Styles */
+.analytics-container {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.chart-container {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.bar-chart {
+  height: 400px;
+  padding: 10px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.pie-chart {
+  height: 400px;
+  padding: 10px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.current-month-chart {
+  height: 400px;
+  padding: 10px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .chart-container {
+    grid-template-columns: 1fr;
+  }
+
+  .bar-chart,
+  .pie-chart,
+  .current-month-chart {
+    height: 300px;
+  }
+} 
